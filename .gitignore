@@ -1,0 +1,14 @@
+# General build files
+**/build/*
+**/bin/*
+/.gradle/
+/node_modules
+
+# IntelliJ
+/out/
+/cordapp/out/
+/cordapp-contracts-states/out/
+/.idea/
+
+#react
+node_modules/
