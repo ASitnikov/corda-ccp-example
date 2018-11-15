@@ -3,12 +3,15 @@ package com.exactpro.example.flow
 import co.paralleluniverse.fibers.Suspendable
 import com.exactpro.example.contract.TradeContract
 import com.exactpro.example.utils.FixMessage
+import com.sun.scenario.effect.Identity
+import net.corda.confidential.IdentitySyncFlow
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
 import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
+import net.corda.core.transactions.WireTransaction
 import net.corda.core.utilities.ProgressTracker
 
 @InitiatingFlow
@@ -54,19 +57,24 @@ class RegisterTradeFlow(val fixMessage: FixMessage, val ccp: Party)
         // Obtain a reference to the notary we want to use.
         val notary = serviceHub.networkMapCache.notaryIdentities.first()
 
+        //Create anonymous identity
+        val anonymousme = ourIdentity.anonymise()
+
         val tradeState = TradeContract.State(
                 tradeId = fixMessage.tradeId,
                 symbol = fixMessage.symbol,
                 side = fixMessage.side,
                 price = fixMessage.price,
                 size = fixMessage.size,
-                buyerOrSeller = serviceHub.myInfo.legalIdentities.first(),
+                buyerOrSeller = anonymousme,
                 ccp = ccp,
                 cleared = false)
 
+
+
         val txCommand = Command(
                 TradeContract.Commands.RegisterTrade(),
-                listOf(ourIdentity.owningKey, ccp.owningKey))
+                listOf(anonymousme.owningKey, ccp.owningKey))
         val txBuilder = TransactionBuilder(notary)
                 .addOutputState(tradeState, TradeContract.ID)
                 .addCommand(txCommand)
@@ -85,8 +93,12 @@ class RegisterTradeFlow(val fixMessage: FixMessage, val ccp: Party)
         // Getting the CCP signature.
         progressTracker.currentStep = GATHERING_SIGS
         val ccpSession = initiateFlow(ccp)
+
+        //Start IdentitySyncFlow.Send
+        subFlow(IdentitySyncFlow.Send(ccpSession, txBuilder.toWireTransaction(serviceHub) ))
+
         val stx = subFlow(CollectSignaturesFlow(
-                ptx, listOf(ccpSession), GATHERING_SIGS.childProgressTracker()))
+                ptx, listOf(ccpSession), listOf(anonymousme.owningKey ),GATHERING_SIGS.childProgressTracker()))
 
         // Stage 5.
         // Notarise and record the transaction in our vaults.
@@ -105,6 +117,8 @@ class AcceptTradeFlow(val otherPartyFlow: FlowSession) : FlowLogic<SignedTransac
                 "This must be an TradeState transaction." using (output is TradeContract.State)
             }
         }
+        //Receive message from IdentitySyncFlow
+        subFlow(IdentitySyncFlow.Receive(otherPartyFlow))
         return subFlow(signTransactionFlow)
     }
 }
