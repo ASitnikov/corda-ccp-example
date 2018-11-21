@@ -3,7 +3,6 @@ package com.exactpro.example.flow
 import co.paralleluniverse.fibers.Suspendable
 import com.exactpro.example.contract.TradeContract
 import com.exactpro.example.utils.FixMessage
-import com.sun.scenario.effect.Identity
 import net.corda.confidential.IdentitySyncFlow
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
@@ -24,6 +23,8 @@ class RegisterTradeFlow(val fixMessage: FixMessage, val ccp: Party)
             : ProgressTracker.Step("Generating transaction.")
         object VERIFYING_TRANSACTION
             : ProgressTracker.Step("Verifying contract constraints.")
+        object EXCHANGING_IDENTITIES
+            : ProgressTracker.Step("Exchanging identities with CCP using IdentitySyncFlow")
         object SIGNING_TRANSACTION
             : ProgressTracker.Step("Signing transaction with our private key.")
         object GATHERING_SIGS
@@ -41,6 +42,7 @@ class RegisterTradeFlow(val fixMessage: FixMessage, val ccp: Party)
                 GENERATING_TRANSACTION,
                 VERIFYING_TRANSACTION,
                 SIGNING_TRANSACTION,
+                EXCHANGING_IDENTITIES,
                 GATHERING_SIGS,
                 FINALISING_TRANSACTION
         )
@@ -58,7 +60,8 @@ class RegisterTradeFlow(val fixMessage: FixMessage, val ccp: Party)
         val notary = serviceHub.networkMapCache.notaryIdentities.first()
 
         //Create anonymous identity
-        val anonymousme = ourIdentity.anonymise()
+        val freshkKeyAndCert = serviceHub.keyManagementService.freshKeyAndCert(ourIdentityAndCert,false)
+        val anonymousme = freshkKeyAndCert.party.anonymise()
 
         val tradeState = TradeContract.State(
                 tradeId = fixMessage.tradeId,
@@ -87,20 +90,21 @@ class RegisterTradeFlow(val fixMessage: FixMessage, val ccp: Party)
         // Stage 3.
         // Sign the transaction.
         progressTracker.currentStep = SIGNING_TRANSACTION
-        val ptx = serviceHub.signInitialTransaction(txBuilder)
+        val ptx = serviceHub.signInitialTransaction(txBuilder, listOf(anonymousme.owningKey))
 
-        // Stage 4.
-        // Getting the CCP signature.
-        progressTracker.currentStep = GATHERING_SIGS
+        // Stage 4
+        //Start session and use IdentitySyncFlow.Send
+        progressTracker.currentStep = EXCHANGING_IDENTITIES
         val ccpSession = initiateFlow(ccp)
-
-        //Start IdentitySyncFlow.Send
         subFlow(IdentitySyncFlow.Send(ccpSession, txBuilder.toWireTransaction(serviceHub) ))
 
-        val stx = subFlow(CollectSignaturesFlow(
-                ptx, listOf(ccpSession), listOf(anonymousme.owningKey ),GATHERING_SIGS.childProgressTracker()))
-
         // Stage 5.
+        // Getting the CCP signature.
+        progressTracker.currentStep = GATHERING_SIGS
+        val stx = subFlow(CollectSignaturesFlow(
+                ptx, listOf(ccpSession), listOf(anonymousme.owningKey),GATHERING_SIGS.childProgressTracker()))
+
+        // Stage 6.
         // Notarise and record the transaction in our vaults.
         progressTracker.currentStep = FINALISING_TRANSACTION
         return subFlow(FinalityFlow(stx, FINALISING_TRANSACTION.childProgressTracker()))
