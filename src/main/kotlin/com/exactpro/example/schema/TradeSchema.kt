@@ -1,6 +1,7 @@
 package com.exactpro.example.schema
 
 import com.exactpro.example.utils.Side
+import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
 import net.corda.core.schemas.MappedSchema
 import net.corda.core.schemas.PersistentState
@@ -32,7 +33,7 @@ object TradeSchemaV1 : MappedSchema(schemaFamily = TradeSchema.javaClass,
             var size: Double,
 
             @Column(name = "buyer_seller_name")
-            var buyerOrSeller: Party?,
+            var buyerOrSeller: AbstractParty?,
 
             @Column(name = "ccp_name")
             var ccp: Party?,

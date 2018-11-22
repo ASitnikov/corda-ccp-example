@@ -3,6 +3,7 @@ package com.exactpro.example.contract
 import com.exactpro.example.schema.TradeSchemaV1
 import com.exactpro.example.utils.Side
 import net.corda.core.contracts.*
+import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
 import net.corda.core.schemas.MappedSchema
 import net.corda.core.schemas.PersistentState
@@ -17,11 +18,11 @@ class TradeContract : Contract {
             val side: Side,
             val price: Double,
             val size: Double,
-            val buyerOrSeller: Party,
+            val buyerOrSeller: AbstractParty,
             val ccp: Party,
             val cleared: Boolean) : ContractState, QueryableState {
 
-        override val participants: List<Party> = listOfNotNull(buyerOrSeller, ccp)
+        override val participants: List<AbstractParty> = listOfNotNull(buyerOrSeller, ccp)
 
         override fun supportedSchemas(): Iterable<MappedSchema> = listOf(TradeSchemaV1)
 
